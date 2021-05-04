@@ -618,7 +618,12 @@ class Model:
             for vehicle in self.vehicles:
                 total_reward += vehicle.final_reward
                 total_profit += vehicle.profit
-            lg.error(f'total_profit={total_profit}, total_reward={total_reward}')
+            NoM = 0
+            for i in self.trip_list:
+                if i.mode == 'missed':
+                    NoM += 1
+            lg.error(f'total_profit={total_profit}, total_reward={total_reward}'
+                     f', missed_trips={NoM/len(self.trip_list)}')
 
     def save_results(self, episode):
         trips_info = []
