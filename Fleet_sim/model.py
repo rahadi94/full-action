@@ -400,6 +400,7 @@ class Model:
                 except:
                     duration = 0
                 soc = vehicle.charge_state + ((power * duration) / (vehicle.battery_capacity / 100))
+                vehicle.estimated_SOC = soc
                 if soc >= 40 and duration >= 10:
                     vehicles.append(vehicle)
             if vehicle.mode in ['discharging']:

@@ -103,28 +103,30 @@ class sub_Agent:
     def alighn_target_model(self):
         self.target_network.set_weights(self.q_network.get_weights())
 
-    def act(self, state, episode):
+    def act(self, state, episode, CSs):
         epsilon = epsilon_decay(episode)
         if self.counter <= 500 and episode == 0:
             action = np.random.choice(np.arange(16))
         else:
+            available_CS = [CSs.index(x) for x in CSs if len(x.plugs.queue) < 6]
             if np.random.rand() <= epsilon:
-                action = np.random.choice(np.arange(16))
+                action = np.random.choice(available_CS)
             else:
                 q_values = self.q_network.predict(state)
-                df = pd.DataFrame(q_values)
+                df = pd.DataFrame(q_values)[available_CS]
                 action = np.argmax(df)
         return action
 
-    def retrain(self, batch_size):
+    def retrain(self, batch_size, CSs):
         minibatch = random.sample(self.expirience_replay, batch_size)
 
         for state, action, reward, next_state, period in minibatch:
 
             target = self.q_network.predict(state)
-
             t = self.target_network.predict(next_state)
             df = pd.DataFrame(t)
+            available_CS = [CSs.index(x) for x in CSs if len(x.plugs.queue) < 6]
+            df = df[available_CS]
             action = np.argmax(df)
             k = ceil(period / 15)
             target[0][action] = reward + self.gamma ** k * np.amax(np.array(df.values))
@@ -136,12 +138,12 @@ class sub_Agent:
         state = self.get_state(vehicle, charging_stations, vehicles, waiting_list, env)
         state = state.reshape((1, len(state)))
         lg.info(f'old_state={vehicle.old_state}, old_sub_action={vehicle.old_sub_action}')
-        action = self.act(state, episode)
+        action = self.act(state, episode, charging_stations)
         vehicle.old_location = vehicle.location
         lg.info(f'new_sub_action={action}, new_state={state}, {vehicle.charging_count}')
         if len(self.expirience_replay) > 512:
             if len(self.expirience_replay) % 1 == 1:
-                self.retrain(self.batch_size)
+                self.retrain(self.batch_size, charging_stations)
             if len(self.expirience_replay) % 10 == 1:
                 self.alighn_target_model()
         vehicle.old_sub_time = env.now

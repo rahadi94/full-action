@@ -12,12 +12,17 @@ def available_vehicle(vehicles, trip, SOC_threshold=20, max_distance=10):
                 distance_to_dropoff = trip.distance
                 charge_consumption = (distance_to_pickup + distance_to_dropoff) * \
                                      vehicle.fuel_consumption * 100.0 / vehicle.battery_capacity
-                if charge_consumption + SOC_threshold <= vehicle.charge_state:
+                if vehicle.mode == 'charging':
+                    soc = vehicle.estimated_SOC
+                else:
+                    soc = vehicle.charge_state
+                if charge_consumption + SOC_threshold <= soc:
                     available_vehicles.append(vehicle)
     return available_vehicles
 
 
 def matching(vehicles, trips):
+    trips = trips[0:len(vehicles)]
     try:
         mdl = Model("CS_development")
         vehicle_range = []
@@ -28,11 +33,15 @@ def matching(vehicles, trips):
             trip_range.append(j.id)
 
         d = {}
+        c = {}
         for i in vehicles:
             for j in trips:
                 d[i.id, j.id] = i.location.distance_1(j.origin)
-                if i.mode in ['charging', 'discharging']:
-                    d[i.id, j.id] += 2
+                c[i.id, j.id] = i.location.distance_1(j.origin)
+                if i.mode in ['queue']:
+                    c[i.id, j.id] += 20
+                if i.mode in ['charging']:
+                    c[i.id, j.id] += 50
                 if isinstance(d[i.id, j.id], list):
                     d[i.id, j.id] = float([i.id, j.id][0])
 
@@ -50,7 +59,10 @@ def matching(vehicles, trips):
 
         SOC = {}
         for i in vehicles:
-            SOC[i.id] = i.charge_state
+            if i.mode in ['charging']:
+                SOC[i.id] = i.estimated_SOC
+            else:
+                SOC[i.id] = i.charge_state
             if isinstance(SOC[i.id], list):
                 SOC[i.id] = float([i.id][0])
 
@@ -63,8 +75,11 @@ def matching(vehicles, trips):
         for j in trips:
             for i in vehicles:
                 mdl.add_constraint(x[i.id, j.id] * (d[i.id, j.id] + l[j.id]) * 0.2 <= SOC[i.id] - 20, 'C2')
+        for j in trips:
+            for i in vehicles:
+                mdl.add_constraint(x[i.id, j.id] * d[i.id, j.id] <= 10, 'C2')
 
-        mdl.maximize(mdl.sum(x[i.id, j.id] * (p[j.id] - d[i.id, j.id] * 0.01) for i in vehicles for j in trips))
+        mdl.maximize(mdl.sum(x[i.id, j.id] * (p[j.id] - c[i.id, j.id] * 0.01) for i in vehicles for j in trips))
 
         mdl.solve()
         #mdl.report()

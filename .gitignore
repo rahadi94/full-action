@@ -7,3 +7,9 @@
 /Fleet_sim/q-table.py
 /Fleet_sim/demand_table.csv
 /Fleet_sim/data.py
+/model.h5
+/model.json
+/origin_destination.csv
+/sub_model.h5
+/sub_model.json
+/Fleet_sim/__init__.py
