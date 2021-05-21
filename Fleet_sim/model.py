@@ -30,8 +30,8 @@ class Model:
         self.discharging_demand_generated = []
         self.utilization = []
         self.vehicle_id = None
-        self.learner = Agent(episode)
         self.sub_learner = sub_Agent(episode)
+        self.learner = Agent(episode, self.sub_learner)
 
     def parking_task(self, vehicle):
         # the selected parking lot is the closest free one
@@ -147,7 +147,8 @@ class Model:
             for i in range(len(self.charging_stations)):
                 if sub_action == i:
                     charging_station = self.charging_stations[i]
-                    if len(charging_station.plugs.queue) >= 6:
+                    vehicle.charging_station = charging_station
+                    '''if len(charging_station.plugs.queue) >= 15:
                         free_CS = [x for x in self.charging_stations if x.plugs.count < x.capacity]
                         if len(free_CS) >= 1:
                             charging_station = closest_facility(free_CS, vehicle)
@@ -157,7 +158,7 @@ class Model:
                         k = ceil((self.env.now - vehicle.decision_time) / 15)
                         vehicle.reward['penalty'] = vehicle.reward['penalty'] * self.learner.Gamma ** k
                         if isinstance(vehicle.reward['penalty'], np.ndarray):
-                            vehicle.reward['penalty'] = vehicle.reward['penalty'][0]
+                            vehicle.reward['penalty'] = vehicle.reward['penalty'][0]'''
 
         '''elif action == 1:
                     free_CS = [x for x in self.charging_stations if x.plugs.count < x.capacity]
@@ -185,7 +186,7 @@ class Model:
             lg.info(f'Vehicle {vehicle.id} starts charging at {self.env.now}')
             vehicle.t_start_charging = self.env.now
             vehicle.reward['queue'] += (self.env.now - vehicle.t_arriving_CS)
-            k = ceil((self.env.now - vehicle.decision_time)/15)
+            k = ceil((self.env.now - vehicle.decision_time) / 15)
             vehicle.reward['queue'] = vehicle.reward['queue'] * self.learner.Gamma ** k
             if isinstance(vehicle.reward['queue'], np.ndarray):
                 vehicle.reward['queue'] = vehicle.reward['queue'][0]
@@ -205,7 +206,7 @@ class Model:
         # if it interrupts the queue before the charging is being started, we need to update everything
         else:
             vehicle.reward['queue'] += (self.env.now - vehicle.t_arriving_CS)
-            k = ceil((self.env.now - vehicle.decision_time)/15)
+            k = ceil((self.env.now - vehicle.decision_time) / 15)
             vehicle.reward['queue'] = vehicle.reward['queue'] * self.learner.Gamma ** k
             if isinstance(vehicle.reward['queue'], np.ndarray):
                 vehicle.reward['queue'] = vehicle.reward['queue'][0]
@@ -249,7 +250,7 @@ class Model:
                     h = j
             vehicle.reward['charging'] += (vehicle.charge_state - old_SOC) / 100 * 50 * charging_cost[h] / 100
             vehicle.profit -= (vehicle.charge_state - old_SOC) / 100 * 50 * charging_cost[h] / 100
-            k = ceil((self.env.now - vehicle.decision_time)/15)
+            k = ceil((self.env.now - vehicle.decision_time) / 15)
             vehicle.reward['charging'] = vehicle.reward['charging'] * self.learner.Gamma ** k
             if isinstance(vehicle.reward['charging'], np.ndarray):
                 vehicle.reward['charging'] = vehicle.reward['charging'][0]
@@ -394,7 +395,7 @@ class Model:
                 if vehicle.charge_state > 40:
                     vehicles.append(vehicle)
             if vehicle.mode in ['charging']:
-                power = 11 / 60
+                power = vehicle.charging_station.power
                 try:
                     duration = self.env.now - vehicle.t_start_charging
                 except:
@@ -411,6 +412,13 @@ class Model:
                 if duration >= 10:
                     vehicles.append(vehicle)
         trips = [x for x in self.waiting_list if x.mode == 'unassigned']
+        for trip in trips:
+            if self.env.now > (trip.start_time + 1):
+                trip.miss_prob = 0.1
+            elif self.env.now > (trip.start_time + 4):
+                trip.miss_prob = 0.5
+            elif self.env.now > (trip.start_time + 8):
+                trip.miss_prob = 1
         pairs = matching(vehicles, trips)
         if len(pairs) == 0:
             return
@@ -488,26 +496,33 @@ class Model:
                 if trip.mode == 'missed':
                     vehicle_responsible = [x for x in self.vehicles if x.mode in
                                            ['charging', 'discharging', 'queue', 'ertc'] and
-                                           x.old_location.distance_1(trip.origin) <= 15
+                                           x.old_location.distance_1(trip.origin) <= 30
                                            and x.charge_state > 30]
-                    '''vehicle_responsible_0 = [x for x in self.vehicles if x.location.distance_1(trip.origin) <= 10 and
+                    vehicle_responsible_0 = [x for x in self.vehicles if x.location.distance_1(trip.origin) <= 30 and
                                            x.mode in ['charging', 'discharging', 'queue', 'ertc']
-                                           and x.charge_state > 30]'''
-                    vehicle_responsible_1 = ([x for x in self.vehicles if x.location.distance_1(trip.origin) <= 15
-                                              and x.mode in ['idle', 'parking', 'cruising'] and x.charge_state <= 25
+                                           and x.charge_state > 30]
+                    vehicle_responsible_1 = ([x for x in self.vehicles if x.location.distance_1(trip.origin) <= 30
+                                              and x.mode in ['idle', 'parking'] and x.charge_state <= 25
                                               and x.charging_count > 0])
+                    vehicle_sub_responsible = ([x for x in self.vehicles if x.location.distance_1(trip.origin) <= 100
+                                                  and x.mode in ['charging', 'queue'] and x.estimated_SOC < 40
+                                                  and self.env.now > x.t_arriving_CS + 30])
                     for vehicle in vehicle_responsible:
-                        vehicle.reward['missed'] += 500
-                        k = ceil((self.env.now - vehicle.decision_time) / 15)
-                        vehicle.reward['missed'] = vehicle.reward['missed'] * self.learner.Gamma ** k
-                    '''for vehicle in vehicle_responsible_0:
                         vehicle.reward['missed'] += 50
                         k = ceil((self.env.now - vehicle.decision_time) / 15)
-                        vehicle.reward['missed'] = vehicle.reward['missed'] * self.learner.Gamma ** k'''
-                    for vehicle in vehicle_responsible_1:
-                        vehicle.reward['missed'] += 500
+                        vehicle.reward['missed'] = vehicle.reward['missed'] * self.learner.Gamma ** k
+                    for vehicle in vehicle_responsible_0:
+                        vehicle.reward['missed'] += 50
                         k = ceil((self.env.now - vehicle.decision_time) / 15)
                         vehicle.reward['missed'] = vehicle.reward['missed'] * self.learner.Gamma ** k
+                    for vehicle in vehicle_responsible_1:
+                        vehicle.reward['missed'] += 50
+                        k = ceil((self.env.now - vehicle.decision_time) / 15)
+                        vehicle.reward['missed'] = vehicle.reward['missed'] * self.learner.Gamma ** k
+                    for vehicle in vehicle_sub_responsible:
+                        vehicle.reward['sub_missed'] += 20
+                        k = ceil((self.env.now - vehicle.decision_time) / 15)
+                        vehicle.reward['sub_missed'] = vehicle.reward['sub_missed'] * self.learner.Gamma ** k
             yield self.env.timeout(1)
 
     def hourly_charging_relocating(self):
@@ -624,7 +639,7 @@ class Model:
                 if i.mode == 'missed':
                     NoM += 1
             lg.error(f'total_profit={total_profit}, total_reward={total_reward}'
-                     f', missed_trips={NoM/len(self.trip_list)}')
+                     f', missed_trips={NoM / len(self.trip_list)}')
 
     def save_results(self, episode):
         trips_info = []

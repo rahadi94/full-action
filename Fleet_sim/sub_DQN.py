@@ -5,6 +5,8 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import model_from_json
 import numpy as np
 from collections import deque
+
+from Fleet_sim.location import closest_facility
 from Fleet_sim.log import lg
 import math
 import pandas as pd
@@ -31,7 +33,7 @@ class sub_Agent:
         self._state_size = 22
         self._action_size = 16
         self._optimizer = Adam(learning_rate=0.0001)
-        self.batch_size = 16
+        self.batch_size = 32
         self.expirience_replay = deque(maxlen=1000000)
         # self.episode = episode
         # Initialize discount and exploration rate
@@ -103,19 +105,42 @@ class sub_Agent:
     def alighn_target_model(self):
         self.target_network.set_weights(self.q_network.get_weights())
 
-    def act(self, state, episode, CSs):
+    def act(self, state, episode, CSs, vehicle):
         epsilon = epsilon_decay(episode)
         if self.counter <= 500 and episode == 0:
             action = np.random.choice(np.arange(16))
         else:
-            available_CS = [CSs.index(x) for x in CSs if len(x.plugs.queue) < 6]
+            available_CS = [CSs.index(x) for x in CSs if len(x.plugs.queue) < 10
+                            and x.location.distance_1(vehicle.location) <= 50]
+            if len(available_CS) == 0:
+                available_CS = [CSs.index(x) for x in CSs if len(x.plugs.queue) < 10]
             if np.random.rand() <= epsilon:
                 action = np.random.choice(available_CS)
             else:
                 q_values = self.q_network.predict(state)
-                df = pd.DataFrame(q_values)[available_CS]
-                action = np.argmax(df)
+                df = pd.DataFrame(q_values)
+                action = df[available_CS].idxmax(axis=1).values[0]
         return action
+
+    '''def act(self, state, episode, CSs, vehicle):
+        epsilon = epsilon_decay(episode)
+        if self.counter <= 500 and episode == 0:
+            action = np.random.choice(np.arange(16))
+        else:
+            c1=closest_facility(CSs, vehicle)
+            free_CS = [x for x in CSs if x.plugs.count < x.capacity]
+            c2=closest_facility(free_CS, vehicle)
+            fast_CS = [x for x in CSs if x.power == 50 / 60]
+            c3=closest_facility(fast_CS, vehicle)
+            available_CS = [CSs.index(x) for x in CSs if x in [c1,c2,c3]]
+            if np.random.rand() <= epsilon:
+                action = np.random.choice(available_CS)
+            else:
+                q_values = self.q_network.predict(state)
+                df = pd.DataFrame(q_values)
+                action = df[available_CS].idxmax(axis=1).values[0]
+        return action'''
+
 
     def retrain(self, batch_size, CSs):
         minibatch = random.sample(self.expirience_replay, batch_size)
@@ -125,11 +150,10 @@ class sub_Agent:
             target = self.q_network.predict(state)
             t = self.target_network.predict(next_state)
             df = pd.DataFrame(t)
-            available_CS = [CSs.index(x) for x in CSs if len(x.plugs.queue) < 6]
-            df = df[available_CS]
-            action = np.argmax(df)
+            available_CS = [CSs.index(x) for x in CSs if len(x.plugs.queue) < 10]
+            a = df[available_CS].max(axis=1).values[0]
             k = ceil(period / 15)
-            target[0][action] = reward + self.gamma ** k * np.amax(np.array(df.values))
+            target[0][action] = reward + self.gamma ** k * a
 
             self.q_network.fit(state, target, epochs=1, verbose=0)
 
@@ -138,7 +162,7 @@ class sub_Agent:
         state = self.get_state(vehicle, charging_stations, vehicles, waiting_list, env)
         state = state.reshape((1, len(state)))
         lg.info(f'old_state={vehicle.old_state}, old_sub_action={vehicle.old_sub_action}')
-        action = self.act(state, episode, charging_stations)
+        action = self.act(state, episode, charging_stations, vehicle)
         vehicle.old_location = vehicle.location
         lg.info(f'new_sub_action={action}, new_state={state}, {vehicle.charging_count}')
         if len(self.expirience_replay) > 512:

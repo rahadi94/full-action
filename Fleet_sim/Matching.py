@@ -57,6 +57,12 @@ def matching(vehicles, trips):
             if isinstance(p[j.id], list):
                 p[j.id] = float(p[j.id][0])
 
+        e = {}
+        for j in trips:
+            e[j.id] = j.miss_prob
+            if isinstance(e[j.id], list):
+                e[j.id] = float(e[j.id][0])
+
         SOC = {}
         for i in vehicles:
             if i.mode in ['charging']:
@@ -80,6 +86,7 @@ def matching(vehicles, trips):
                 mdl.add_constraint(x[i.id, j.id] * d[i.id, j.id] <= 10, 'C2')
 
         mdl.maximize(mdl.sum(x[i.id, j.id] * (p[j.id] - c[i.id, j.id] * 0.01) for i in vehicles for j in trips))
+        ''' - (1-mdl.sum(x[i.id, j.id] for i in vehicles)) * e[j.id] * 20)'''
 
         mdl.solve()
         #mdl.report()
@@ -89,7 +96,6 @@ def matching(vehicles, trips):
                 if x[i.id, j.id].solution_value != 0:
                     pairs.append(dict(vehicle=i, trip=j))
         lg.info(f'NoT = {len(trips)}, NoV = {len(vehicles)}, NoM = {len(pairs)}')
-
     except:
         lg.info('Solving the model fails')
         pairs = []

@@ -25,21 +25,21 @@ def epsilon_decay(time):
 
 
 class Agent:
-    def __init__(self, episode):
+    def __init__(self, episode, sub_learner):
 
         # Initialize atributes
         # self.env = env
-        self._state_size = 22
+        self._state_size = 23
         self._action_size = 3
         self._optimizer = Adam(learning_rate=0.0001)
         self.batch_size = 32
-        self.expirience_replay = deque(maxlen=10000000)
+        self.expirience_replay = deque(maxlen=100000)
         # Initialize discount and exploration rate
         self.gamma = 0.99
         self.Gamma = 0.90
         self.replay_start_size = 1000
         self.episode = episode
-
+        self.sub_learner = sub_learner
         # Build networks
         self.q_network = self._build_compile_model()
         self.target_network = self._build_compile_model()
@@ -72,7 +72,10 @@ class Agent:
             free_CS = 1
         else:
             free_CS = 0
-        return np.append(np.array([SOC, hour, position, supply, free_CS, wl]), q)
+        sub_state = self.sub_learner.get_state(vehicle, charging_stations, vehicles, waiting_list, env)
+        sub_state = sub_state.reshape((1, len(sub_state)))
+        destination = self.sub_learner.act(sub_state, self.episode, charging_stations, vehicle)
+        return np.append(np.array([SOC, hour, position, supply, free_CS, wl, destination]), q)
 
     def store(self, state, action, reward, next_state, period):
         self.expirience_replay.append((state, action, reward, next_state, period))
@@ -93,7 +96,7 @@ class Agent:
             # model.add(Reshape((None,7)))
             model.add(Dense(512, activation='relu', input_dim=self._state_size))
             model.add(Dense(256, activation='relu'))
-            model.add(Dense(256, activation='relu'))
+            # model.add(Dense(256, activation='relu'))
             model.add(Dense(512, activation='relu'))
             model.add(Dense(self._action_size, activation='linear'))
 
@@ -152,15 +155,17 @@ class Agent:
         action = self.act(state, episode)
         vehicle.old_location = vehicle.location
         lg.info(f'new_action={action}, new_state={state}, {vehicle.charging_count}')
-        vehicle.r = float(-(vehicle.reward['charging'] + vehicle.reward['distance'] * 0.8 - vehicle.reward[
-            'revenue'] - vehicle.reward['discharging'] + vehicle.reward['queue'] / 15 + vehicle.reward['missed']))
+        vehicle.r = float(-(vehicle.reward['charging'] + vehicle.reward['distance'] * 0.80 - vehicle.reward[
+            'revenue'] - vehicle.reward['discharging'] + vehicle.reward['queue'] / 30 + vehicle.reward['parking']
+                            / 120 + vehicle.reward['missed']))
 
-        vehicle.r_modified = float(-((vehicle.reward['distance'] * 4) - vehicle.reward[
-            'revenue'] + vehicle.reward['queue'] + vehicle.reward['penalty']))
+        '''vehicle.r_modified = float(-(vehicle.reward['distance'] - vehicle.reward[
+            'revenue'] + vehicle.reward['queue'] + vehicle.reward['sub_missed'] * 0))'''
+        vehicle.r_modified = vehicle.r
         lg.info(f"charging={vehicle.reward['charging']}, distance={vehicle.reward['distance']},"
                 f"revenue={vehicle.reward['revenue']}, queue={vehicle.reward['queue']} "
                 f"interruption = {vehicle.reward['interruption']} missed = {vehicle.reward['missed']} "
-                f"penalty = {vehicle.reward['penalty']}"
+                f"sub_missed = {vehicle.reward['sub_missed']}"
                 f"reward = {vehicle.r}, sub_reward = {vehicle.r_modified}")
         reward = vehicle.r
         vehicle.final_reward += reward
@@ -188,6 +193,7 @@ class Agent:
         vehicle.reward['queue'] = 0
         vehicle.reward['parking'] = 0
         vehicle.reward['missed'] = 0
+        vehicle.reward['sub_missed'] = 0
         vehicle.reward['discharging'] = 0
         vehicle.reward['interruption'] = 0
         vehicle.reward['penalty'] = 0

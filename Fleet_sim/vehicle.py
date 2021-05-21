@@ -64,7 +64,7 @@ class Vehicle:
         self.discharging_end = env.event()
         self.trip_cancellation = env.event()
         self.reward = dict(charging=0, queue=0, distance=0, revenue=0, parking=0, missed=0, discharging=0,
-                           interruption=0, penalty=0)
+                           interruption=0, penalty=0, sub_missed=0)
         self.total_rewards = dict(state=[], action=[], reward=[])
         self.profit = 0
         self.final_reward = 0
@@ -74,6 +74,9 @@ class Vehicle:
         self.old_state = None
         self.old_sub_state = None
         self.charging_count = 0
+        self.charging_station = None
+        self.estimated_SOC = 0
+
 
     def SOC_consumption(self, distance):
         return float(distance * self.fuel_consumption * 100.0 / self.battery_capacity)
